@@ -162,6 +162,40 @@ def grade(source, level):
     return reward, parts, note
 
 
+def classify_failure(parts, feedback):
+    """Group verifier outcomes into actionable failure modes for run summaries."""
+    if parts.get("correct"):
+        return "correct"
+    if feedback.startswith("No code came back."):
+        return "no_code"
+    if not parts.get("parses"):
+        return "syntax"
+    if not parts.get("rules"):
+        return "rule_violation"
+    if feedback.startswith("CANNOT SIMULATE:"):
+        return "environment"
+    if "could not be loaded:" in feedback or "There is no module named" in feedback:
+        return "load_error"
+    if "raised " in feedback:
+        if any(marker in feedback for marker in (
+            "has no attribute", "unexpected keyword argument", "MemoryRegion",
+        )):
+            return "api_error"
+        return "runtime_error"
+    if "THE KERNEL MODIFIED ITS INPUT" in feedback:
+        return "input_mutation"
+    if "TOO MUCH HBM TRAFFIC" in feedback:
+        return "excessive_traffic"
+    if "CORRECT ON CPU BUT WRONG ON HARDWARE" in feedback:
+        return "hardware_hazard"
+    if any(marker in feedback for marker in (
+        "NUMERICAL MISMATCH", "WRONG SHAPE", "NON-FINITE OUTPUT", "OUTPUT IS ",
+        " of the output is zero",
+    )):
+        return "numerical_mismatch"
+    return "other"
+
+
 # ---------------------------------------------------------------- prompting
 
 # Every name here appears in the three shipped tutorial kernels, so none of it is invented. The
@@ -499,14 +533,20 @@ def solve(a, level, log):
         replies = (offline_answers(level, a.samples, rnd) if a.offline
                    else ask_parallel(a, prompt, a.samples))
         graded = []
+        categories = {}
         for reply in replies:
             src = extract_code(reply)
             reward, parts, feedback = grade(src, level)
+            category = classify_failure(parts, feedback)
+            categories[category] = categories.get(category, 0) + 1
             graded.append((reward, src, feedback, parts))
             log.write(json.dumps(dict(level=level, round=rnd, reward=reward, parts=parts,
+                                      failure_type=category,
                                       prompt_chars=len(prompt), reply_chars=len(reply),
                                       code=src, feedback=feedback)) + "\n")
         log.flush()
+        print("  attempt types: " + ", ".join(
+            f"{name}={count}" for name, count in sorted(categories.items())))
         graded.sort(key=lambda g: g[0], reverse=True)
         top = graded[0]
         if top[0] > best[0]:

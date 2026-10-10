@@ -61,6 +61,10 @@ nohup python agent.py --all --rounds 6 --samples 2 --context 4096 > run.log 2>&1
 tail -f run.log
 ```
 
+Each round prints a count of attempt types (for example, `numerical_mismatch=3`), and each
+`attempts.jsonl` record includes a `failure_type`. Use these counts to identify the failure mode that
+is most worth fixing before changing prompts or feedback.
+
 > **Long runs survive a dropped connection only if you start them like this.** A `kubectl exec` session
 > can drop (Wi-Fi, laptop sleep, `connection reset by peer`), and anything running in the foreground of
 > that shell dies with it. So start the run in the background, writing to a log, and watch the log:
